@@ -1,0 +1,40 @@
+; Default Jupyter macOS sandbox profile
+(version 1)
+
+; Deny everything by default
+(deny default)
+
+; Allow file read/write metadata
+(allow file-read-metadata)
+
+; Allow read access to standard system paths
+(allow file-read*
+    (require-all (file-mode #o0004)
+        (require-any
+            (subpath "/Library")
+            (subpath "/System")
+            (subpath "/usr")
+            (subpath "/private")
+        )
+    )
+)
+
+; Allow access to /dev/null, /dev/random, etc.
+(allow file-read*
+    (literal "/dev/null")
+    (literal "/dev/random")
+    (literal "/dev/urandom")
+)
+
+; Allow necessary sysctl reads
+(allow sysctl-read)
+
+; Allow standard network access for Jupyter
+(allow network-inbound)
+(allow network-outbound)
+(allow network-bind)
+
+; Allow process execution for starting kernels
+(allow process-exec)
+
+; Custom permissions will be inserted below based on user input
