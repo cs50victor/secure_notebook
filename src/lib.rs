@@ -1,5 +1,7 @@
-use std::path::PathBuf;
 use anyhow::Result;
+use std::path::PathBuf;
+
+pub const DEFAULT_SANDBOX_PROFILE: &str = include_str!("notebook_defaults.sb");
 
 /// Permissions struct to hold allowed and denied permissions.
 pub struct Permissions {
@@ -57,7 +59,7 @@ impl Permissions {
         self.allow_net = true;
     }
 
-    /// Deny network access. 
+    /// Deny network access.
     // pub fn deny_net(&mut self) -> Self {
     //     self.deny_net = true;
     //     self
@@ -75,18 +77,20 @@ impl Permissions {
 }
 
 fn validate_paths(paths: Vec<PathBuf>) -> Result<Vec<String>, std::io::Error> {
-    paths.into_iter().map(|path| {
-        if path.exists() {
-            Ok(path.to_string_lossy().to_string())
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Path does not exist: {}", path.display()),
-            ))
-        }
-    }).collect()
+    paths
+        .into_iter()
+        .map(|path| {
+            if path.exists() {
+                Ok(path.to_string_lossy().to_string())
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("Path does not exist: {}", path.display()),
+                ))
+            }
+        })
+        .collect()
 }
-
 
 /// Function to generate the sandbox profile based on permissions.
 pub fn generate_profile(template: &str, permissions: &Permissions) -> Result<String> {
@@ -130,13 +134,9 @@ fn generate_file_permissions(
     let mut statement = String::new();
 
     for path in deny_paths {
-        statement.push_str(&format!(
-            "(deny {} (subpath \"{}\"))\n",
-            access_type,
-            path
-        ));
+        statement.push_str(&format!("(deny {} (subpath \"{}\"))\n", access_type, path));
     }
-    
+
     if !allow_paths.is_empty() {
         statement.push_str(&format!("(allow {})\n", access_type));
         for path in allow_paths {
@@ -144,7 +144,7 @@ fn generate_file_permissions(
         }
         statement.push_str(")\n");
     }
-    
+
     statement
 }
 
@@ -154,7 +154,7 @@ fn generate_network_permissions(allow_net: bool) -> String {
 
     if allow_net {
         statement.push_str("(allow network*)\n");
-    } 
+    }
     // else if deny_net {
     //     statement.push_str("(deny network*)\n");
     // }
@@ -167,10 +167,7 @@ fn generate_run_permissions(allow_progs: &[String], deny_progs: &[String]) -> St
     let mut statement = String::new();
 
     for prog in deny_progs {
-        statement.push_str(&format!(
-            "(deny process-exec (literal \"{}\"))\n",
-            prog
-        ));
+        statement.push_str(&format!("(deny process-exec (literal \"{}\"))\n", prog));
     }
 
     if !allow_progs.is_empty() {
@@ -209,10 +206,13 @@ pub fn minify_profile(profile: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use jupyter_client::Client;
+    use std::collections::HashMap;
     use std::fs::File;
+    use std::io::Write;
+    use std::time::Duration;
     use tempfile::tempdir;
-
+    use tokio;
 
     #[test]
     fn test_minify_profile() {
@@ -227,10 +227,11 @@ mod tests {
         let minified = minify_profile(profile);
         assert_eq!(minified, "(version 1) (deny default) (allow file-read*)");
     }
-    
+
     #[test]
     fn test_nonexistent_path() {
-        let result = Permissions::new().allow_read(vec![PathBuf::from("/path/that/does/not/exist")]);
+        let result =
+            Permissions::new().allow_read(vec![PathBuf::from("/path/that/does/not/exist")]);
         assert!(result.is_err());
     }
 
@@ -244,7 +245,7 @@ mod tests {
         assert!(permissions.contains("(allow file-read*)"));
         assert!(permissions.contains("(subpath \"/tmp/allowed\")"));
     }
-    
+
     #[test]
     fn test_network_permissions_generation() {
         let allow_net_permissions = generate_network_permissions(true);
@@ -253,7 +254,7 @@ mod tests {
         let deny_net_permissions = generate_network_permissions(false);
         assert_eq!(deny_net_permissions, "");
     }
-    
+
     #[test]
     fn test_run_permissions_generation() {
         let allow_progs = vec!["jupyter".to_string(), "python".to_string()];
@@ -265,7 +266,7 @@ mod tests {
         assert!(permissions.contains("(literal \"jupyter\")"));
         assert!(permissions.contains("(literal \"python\")"));
     }
-    
+
     #[test]
     fn test_generate_profile() -> Result<()> {
         let temp_dir = tempdir()?;
@@ -295,7 +296,137 @@ mod tests {
         Ok(())
     }
 
+    // end to end test -ish section
+    // testing the sandbox with a real kernel
 
+    async fn setup_jupyter_server(profile: &str) -> Client {
+        // Start the Jupyter server (this assumes jupyter-server is in PATH)
+        
+        if let Err(e) =  tokio::process::Command::new("sandbox-exec")
+                .arg("-p")
+                .arg(format!("'{profile}'"))
+                .arg("jupyter-server")
+                .arg("--no-browser")
+                .arg("--IdentityProvider.token")
+                .arg("''")
+                .spawn(){
+                    println!("Failed to start Jupyter server: {:?}", e);
+                };
 
+        // Give the server some time to start up
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        // Connect to the server
+        Client::existing().expect("Failed to connect to Jupyter server")
+    }
+
+    async fn run_code(client: &Client, code: &str) -> Result<()> {
+        println!("Running code: {code}");
+        let command = jupyter_client::commands::Command::Execute {
+            code: code.to_string(),
+            silent: false,
+            store_history: true,
+            user_expressions: HashMap::new(),
+            allow_stdin: true,
+            stop_on_error: false,
+        };
+
+        let response = client
+            .send_shell_command(command)
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        // Check for errors in the response
+        if let jupyter_client::responses::Response::Shell(
+            jupyter_client::responses::ShellResponse::Execute { content, .. },
+        ) = response
+        {
+            if content.status == jupyter_client::responses::Status::Error {
+                return Err(anyhow::anyhow!("Execution error: {:?}", content.evalue));
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_jupyter_permissions() -> Result<(), anyhow::Error> {
+
+        let temp_dir = tempdir()?;
+        let allowed_path = temp_dir.path().join("allowed");
+        let denied_path = temp_dir.path().join("denied");
+        std::fs::create_dir_all(&allowed_path)?;
+        std::fs::create_dir_all(&denied_path)?;
+
+        let mut permissions = Permissions::new();
+        permissions.allow_read(vec![allowed_path.clone()])?;
+        permissions.deny_read(vec![denied_path.clone()])?;
+        permissions.allow_write(vec![allowed_path.clone()])?;
+        permissions.deny_write(vec![denied_path.clone()])?;
+        permissions.allow_net();
+        permissions.allow_run(vec!["python".to_string()]);
+
+        let template = "(version 1)\n(deny default)\n";
+        let profile = generate_profile(template, &permissions)?;
+        let minified_profile = minify_profile(&profile);
+
+        let jupyter_client = setup_jupyter_server(&minified_profile).await;
+        
+
+        // Test allowed read
+        let allowed_read_code = format!(
+            "
+                with open('{}', 'r') as f:
+                    print(f.read())
+            ",
+            allowed_path.join("test.txt").to_str().unwrap()
+        );
+        run_code(&jupyter_client, &allowed_read_code).await?;
+
+        // Test denied read
+        let denied_read_code = format!(
+            "
+                with open('{}', 'r') as f:
+                    print(f.read())
+            ",
+            denied_path.join("test.txt").to_str().unwrap()
+        );
+        assert!(run_code(&jupyter_client, &denied_read_code).await.is_err());
+
+        // Test allowed write
+        let allowed_write_code = format!(
+            "
+                with open('{}', 'w') as f:
+                    f.write('test')
+            ",
+            allowed_path.join("test.txt").to_str().unwrap()
+        );
+        run_code(&jupyter_client, &allowed_write_code).await?;
+
+        // Test denied write
+        let denied_write_code = format!(
+            "
+                with open('{}', 'w') as f:
+                    f.write('test')
+            ",
+            denied_path.join("test.txt").to_str().unwrap()
+        );
+        assert!(run_code(&jupyter_client, &denied_write_code).await.is_err());
+
+        // Test allowed network access
+        let network_code = "
+                import requests
+                response = requests.get('https://api.github.com')
+                print(response.status_code)
+            ";
+        run_code(&jupyter_client, network_code).await?;
+
+        // Test allowed program execution
+        let python_exec_code = "
+                import sys
+                print(sys.executable)
+            ";
+        run_code(&jupyter_client, python_exec_code).await?;
+
+        Ok(())
+    }
 }
-
