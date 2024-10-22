@@ -116,7 +116,7 @@ pub fn generate_profile(template: &str, permissions: &Permissions) -> Result<Str
 }
 
 /// Helper function to generate file permissions.
-fn generate_file_permissions(
+pub fn generate_file_permissions(
     access_type: &str,
     allow_paths: &[String],
     deny_paths: &[String],
