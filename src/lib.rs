@@ -1,7 +1,7 @@
 // `cp /System/Library/Sandbox/Profiles/* sb_references``
 
-pub mod templates;
 pub mod acess_types;
+pub mod templates;
 
 use anyhow::Result;
 use std::path::PathBuf;
@@ -11,14 +11,14 @@ pub const DEFAULT_SANDBOX_PROFILE: &str = include_str!("notebook_defaults.sb");
 /// Permissions struct to hold allowed and denied permissions.
 #[derive(Debug, Default, Clone)]
 pub struct Permissions {
-    pub allow_read: Vec<String>,
-    pub deny_read: Vec<String>,
-    pub allow_write: Vec<String>,
-    pub deny_write: Vec<String>,
+    pub allow_read: Vec<PathBuf>,
+    pub deny_read: Vec<PathBuf>,
+    pub allow_write: Vec<PathBuf>,
+    pub deny_write: Vec<PathBuf>,
     pub allow_net: bool,
     // pub deny_net: bool,
-    pub allow_run: Vec<String>,
-    pub deny_run: Vec<String>,
+    pub allow_run: Vec<PathBuf>,
+    pub deny_run: Vec<PathBuf>,
 }
 
 impl Permissions {
@@ -57,22 +57,22 @@ impl Permissions {
     }
 
     /// Allow execution of specified programs (supports glob patterns).
-    fn allow_run(&mut self, programs: Vec<String>) {
+    fn allow_run(&mut self, programs: Vec<PathBuf>) {
         self.allow_run = programs;
     }
 
     /// Deny execution of specified programs (supports glob patterns).
-    fn deny_run(&mut self, programs: Vec<String>) {
+    fn deny_run(&mut self, programs: Vec<PathBuf>) {
         self.deny_run = programs;
     }
 }
 
-fn validate_paths(paths: Vec<PathBuf>) -> Result<Vec<String>, std::io::Error> {
+pub fn validate_paths(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, std::io::Error> {
     paths
         .into_iter()
         .map(|path| {
             if path.exists() {
-                Ok(path.to_string_lossy().to_string())
+                Ok(path)
             } else {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -119,19 +119,28 @@ pub fn generate_profile(template: &str, permissions: &Permissions) -> Result<Str
 /// Helper function to generate file permissions.
 pub fn generate_file_permissions(
     access_type: &str,
-    allow_paths: &[String],
-    deny_paths: &[String],
+    allow_paths: &[PathBuf],
+    deny_paths: &[PathBuf],
 ) -> String {
     let mut statement = String::new();
 
     for path in deny_paths {
-        statement.push_str(&format!("(deny {} (subpath \"{}\"))\n", access_type, path));
+        statement.push_str(&format!(
+            "(deny {} (subpath \"{}\"))\n",
+            access_type,
+            path.to_string_lossy().to_string()
+        ));
     }
 
     if !allow_paths.is_empty() {
         statement.push_str(&format!("(allow {})\n", access_type));
         for path in allow_paths {
-            statement.push_str(&format!("    (subpath \"{}\")\n", path));
+            let file_type = if path.is_dir() { "subpath" } else { "literal" };
+            statement.push_str(&format!(
+                "    ({} \"{}\")\n",
+                file_type,
+                path.to_string_lossy().to_string()
+            ));
         }
         statement.push_str(")\n");
     }
@@ -154,17 +163,23 @@ fn generate_network_permissions(allow_net: bool) -> String {
 }
 
 /// Helper function to generate process execution permissions.
-fn generate_run_permissions(allow_progs: &[String], deny_progs: &[String]) -> String {
+fn generate_run_permissions(allow_progs: &[PathBuf], deny_progs: &[PathBuf]) -> String {
     let mut statement = String::new();
 
     for prog in deny_progs {
-        statement.push_str(&format!("(deny process-exec (literal \"{}\"))\n", prog));
+        statement.push_str(&format!(
+            "(deny process-exec (literal \"{}\"))\n",
+            prog.to_string_lossy().to_string()
+        ));
     }
 
     if !allow_progs.is_empty() {
         statement.push_str("(allow process-exec\n");
         for prog in allow_progs {
-            statement.push_str(&format!("    (literal \"{}\")\n", prog));
+            statement.push_str(&format!(
+                "    (literal \"{}\")\n",
+                prog.to_string_lossy().to_string()
+            ));
         }
         statement.push_str(")\n");
     }
@@ -226,8 +241,8 @@ mod tests {
 
     #[test]
     fn test_file_permissions_generation() {
-        let allow_paths = vec!["/tmp/allowed".to_string()];
-        let deny_paths = vec!["/tmp/denied".to_string()];
+        let allow_paths = vec![PathBuf::from("/tmp/allowed")];
+        let deny_paths = vec![PathBuf::from("/tmp/denied")];
         let permissions = generate_file_permissions("file-read*", &allow_paths, &deny_paths);
 
         assert!(permissions.contains("(deny file-read* (subpath \"/tmp/denied\"))"));
@@ -246,8 +261,8 @@ mod tests {
 
     #[test]
     fn test_run_permissions_generation() {
-        let allow_progs = vec!["jupyter".to_string(), "python".to_string()];
-        let deny_progs = vec!["bash".to_string()];
+        let allow_progs = vec![PathBuf::from("jupyter"), PathBuf::from("python")];
+        let deny_progs = vec![PathBuf::from("bash")];
         let permissions = generate_run_permissions(&allow_progs, &deny_progs);
 
         assert!(permissions.contains("(deny process-exec (literal \"bash\"))"));
@@ -270,7 +285,7 @@ mod tests {
         permissions.allow_write(vec![allowed_path])?;
         permissions.deny_write(vec![denied_path])?;
         permissions.allow_net();
-        permissions.allow_run(vec!["jupyter".to_string()]);
+        permissions.allow_run(vec![PathBuf::from("jupyter")]);
 
         let template = "(version 1)\n(deny default)\n";
         let profile = generate_profile(template, &permissions)?;
@@ -352,7 +367,7 @@ mod tests {
         permissions.allow_write(vec![allowed_path.clone()])?;
         permissions.deny_write(vec![denied_path.clone()])?;
         permissions.allow_net();
-        permissions.allow_run(vec!["python".to_string()]);
+        permissions.allow_run(vec![PathBuf::from("python")]);
 
         let template = "(version 1)\n(deny default)\n";
         let profile = generate_profile(template, &permissions)?;
