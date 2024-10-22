@@ -1,9 +1,14 @@
+// `cp /System/Library/Sandbox/Profiles/* sb_references``
+
+pub mod templates;
+
 use anyhow::Result;
 use std::path::PathBuf;
 
 pub const DEFAULT_SANDBOX_PROFILE: &str = include_str!("notebook_defaults.sb");
 
 /// Permissions struct to hold allowed and denied permissions.
+#[derive(Debug, Default, Clone)]
 pub struct Permissions {
     pub allow_read: Vec<String>,
     pub deny_read: Vec<String>,
@@ -18,16 +23,7 @@ pub struct Permissions {
 impl Permissions {
     /// Create a new Permissions instance with default settings.
     pub fn new() -> Self {
-        Permissions {
-            allow_read: Vec::new(),
-            deny_read: Vec::new(),
-            allow_write: Vec::new(),
-            deny_write: Vec::new(),
-            allow_net: false,
-            // deny_net: false,
-            allow_run: Vec::new(),
-            deny_run: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Allow read access to specified paths (supports glob patterns).
@@ -55,23 +51,17 @@ impl Permissions {
     }
 
     /// Allow network access.
-    pub fn allow_net(&mut self) {
+    fn allow_net(&mut self) {
         self.allow_net = true;
     }
 
-    /// Deny network access.
-    // pub fn deny_net(&mut self) -> Self {
-    //     self.deny_net = true;
-    //     self
-    // }
-
     /// Allow execution of specified programs (supports glob patterns).
-    pub fn allow_run(&mut self, programs: Vec<String>) {
+    fn allow_run(&mut self, programs: Vec<String>) {
         self.allow_run = programs;
     }
 
     /// Deny execution of specified programs (supports glob patterns).
-    pub fn deny_run(&mut self, programs: Vec<String>) {
+    fn deny_run(&mut self, programs: Vec<String>) {
         self.deny_run = programs;
     }
 }
@@ -208,8 +198,6 @@ mod tests {
     use super::*;
     use jupyter_client::Client;
     use std::collections::HashMap;
-    use std::fs::File;
-    use std::io::Write;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio;
@@ -301,17 +289,18 @@ mod tests {
 
     async fn setup_jupyter_server(profile: &str) -> Client {
         // Start the Jupyter server (this assumes jupyter-server is in PATH)
-        
-        if let Err(e) =  tokio::process::Command::new("sandbox-exec")
-                .arg("-p")
-                .arg(format!("'{profile}'"))
-                .arg("jupyter-server")
-                .arg("--no-browser")
-                .arg("--IdentityProvider.token")
-                .arg("''")
-                .spawn(){
-                    println!("Failed to start Jupyter server: {:?}", e);
-                };
+
+        if let Err(e) = tokio::process::Command::new("sandbox-exec")
+            .arg("-p")
+            .arg(format!("'{profile}'"))
+            .arg("jupyter-server")
+            .arg("--no-browser")
+            .arg("--IdentityProvider.token")
+            .arg("''")
+            .spawn()
+        {
+            println!("Failed to start Jupyter server: {:?}", e);
+        };
 
         // Give the server some time to start up
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -350,7 +339,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_jupyter_permissions() -> Result<(), anyhow::Error> {
-
         let temp_dir = tempdir()?;
         let allowed_path = temp_dir.path().join("allowed");
         let denied_path = temp_dir.path().join("denied");
@@ -370,7 +358,6 @@ mod tests {
         let minified_profile = minify_profile(&profile);
 
         let jupyter_client = setup_jupyter_server(&minified_profile).await;
-        
 
         // Test allowed read
         let allowed_read_code = format!(

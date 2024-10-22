@@ -1,11 +1,21 @@
+; ls  /System/Library/Sandbox/Profiles/
 (version 1)
 (deny default)
+; required to start the server
 (allow process-exec)
-(allow process*)
+; to allow client to connect to the server and start kernel
+; to also prevent error -> self.pid = _fork_exec (permission denied)
+(allow process-fork)
+
+
 (allow network-inbound)
 (allow network-outbound)
 (allow network-bind)
+
+; jupyter notebook can gracefully shutdown itself when signaled
+;(allow signal (target self))
 (allow signal)
+
 (allow ipc*)
 (allow system*)
 (allow mach*)
@@ -15,11 +25,17 @@
 (allow lsopen)
 (allow nvram*)
 
+;; allow processes to traverse symlinks
 (allow file-read-metadata)
+
 ; Allow read access to standard system paths
 ; Allow TTY access - I do not think there is a risk allowing it and otherwise the REPL would not work?
 (allow file-ioctl
   (regex #"^/dev/tty(.*)")
+  (regex "^/dev/tty[^\\.]")
+  (regex "^/dev/pty")
+  (regex #"^/dev/ttys[0-9]*")
+  (regex "^/dev/ttys[0-9]*")
 )
 (allow file-read*)
 (allow file-write*
