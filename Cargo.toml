@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.89"
+anyhow = "*"
 
 [dev-dependencies]
 jupyter-client = { git = "https://github.com/sxhxliang/jupyter-client-rs.git" }
