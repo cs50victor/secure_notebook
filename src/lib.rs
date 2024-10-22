@@ -3,13 +3,14 @@
 pub mod acess_types;
 pub mod templates;
 
+use serde::{Serialize, Deserialize};
 use anyhow::Result;
 use std::path::PathBuf;
 
 pub const DEFAULT_SANDBOX_PROFILE: &str = include_str!("notebook_defaults.sb");
 
 /// Permissions struct to hold allowed and denied permissions.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Permissions {
     pub allow_read: Vec<PathBuf>,
     pub deny_read: Vec<PathBuf>,

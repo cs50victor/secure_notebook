@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "*"
+serde = { version = "*", features = ["derive"] }
 
 [dev-dependencies]
 jupyter-client = { git = "https://github.com/sxhxliang/jupyter-client-rs.git" }
