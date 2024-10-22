@@ -1,6 +1,7 @@
 // `cp /System/Library/Sandbox/Profiles/* sb_references``
 
 pub mod templates;
+pub mod acess_types;
 
 use anyhow::Result;
 use std::path::PathBuf;
