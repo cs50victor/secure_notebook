@@ -134,7 +134,7 @@ pub fn generate_file_permissions(
     }
 
     if !allow_paths.is_empty() {
-        statement.push_str(&format!("(allow {})\n", access_type));
+        statement.push_str(&format!("(allow {}\n", access_type));
         for path in allow_paths {
             let file_type = if path.is_dir() { "subpath" } else { "literal" };
             statement.push_str(&format!(
